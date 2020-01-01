@@ -82,6 +82,7 @@ enum {
 	DST_FIELD_IPV4,
 	SRCP_FIELD_IPV4,
 	DSTP_FIELD_IPV4,
+	TCP_FLAGS_FIELD,
 	NUM_FIELDS_IPV4
 };
 
@@ -89,7 +90,8 @@ enum {
 	PROTO_INPUT_IPV4,
 	SRC_INPUT_IPV4,
 	DST_INPUT_IPV4,
-	SRCP_DESTP_INPUT_IPV4
+	SRCP_DESTP_INPUT_IPV4,
+	TCP_FLAGS_INDEX,
 };
 
 static struct rte_acl_field_def ipv4_defs[NUM_FIELDS_IPV4] = {
@@ -145,6 +147,17 @@ static struct rte_acl_field_def ipv4_defs[NUM_FIELDS_IPV4] = {
 		.offset = sizeof(struct rte_ether_hdr) +
 			sizeof(struct rte_ipv4_hdr) +
 			offsetof(struct rte_tcp_hdr, dst_port),
+	},
+	/* next field must be 4 bytes, even though flags is only 1 byte */
+	{
+		/* rte_flags */
+		.type = RTE_ACL_FIELD_TYPE_BITMASK,
+		.size = sizeof(uint32_t),
+		.field_index = TCP_FLAGS_FIELD,
+		.input_index = TCP_FLAGS_INDEX,
+		.offset = sizeof(struct rte_ether_hdr) +
+			sizeof(struct rte_ipv4_hdr) +
+			offsetof(struct rte_tcp_hdr, tcp_flags),
 	},
 };
 
@@ -405,8 +418,10 @@ get_tcp_flags(char *in, struct rte_eth_ntuple_filter *ntuple_filter)
 	int i;
 	uint8_t flags = 0;
 
-	if (strcmp(in, "*") == 0)
+	if (strcmp(in, "*") == 0) {
+		ntuple_filter->tcp_flags = 0;
 		return 0;
+	}
 
 	for (i = 0; i < len; i++) {
 		switch (in[i]) {
@@ -472,7 +487,7 @@ parse_ipv4_5tuple_rule(char *str, struct rte_eth_ntuple_filter *ntuple_filter)
 			&ntuple_filter->dst_ip,
 			&ntuple_filter->dst_ip_mask);
 	if (ret != 0) {
-		flow_classify_log("failed to read source address/mask: %s\n",
+		flow_classify_log("failed to read ssourceource address/mask: %s\n",
 			in[CB_FLD_DST_ADDR]);
 		return ret;
 	}
@@ -693,6 +708,10 @@ add_classify_rule(struct rte_eth_ntuple_filter *ntuple_filter,
 		return ret;
 	}
 
+	/* XXX but this only adds table_type of  RTE_FLOW_CLASSIFY_TABLE_ACL_IP4_5TUPLE
+	 * i.e., it only ever does allocate_acl_ipv4_5tuple_rule() so the tcp_flags is
+	 * ignored! 
+	 */
 	rule = rte_flow_classify_table_entry_add(
 			cls_app->cls, &attr, pattern_ipv4_5tuple,
 			actions, &key_found, &error);
